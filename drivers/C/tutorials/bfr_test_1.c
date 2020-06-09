@@ -18,11 +18,11 @@
  */
 
 /***************************************************************************
- * VSC_TUTORIAL_2 - Custom Text Display Mode Example
+ * VSC_TUTORIAL_3 - Text/Value Display Mode Example
  *
- *   The second tutorial shows how to switch the SRC into the custom text display
- *   mode.  The example is based on the first tutorial, and expands it by
- *   setting three default display lines, and constantly updating the fourth.
+ *   The third tutorial shows how to switch the SRC into the text/value display
+ *   mode.  The example shows how to constantly update user feedback values on
+ *   the SRC display.
  *
  ***************************************************************************/
 
@@ -44,6 +44,10 @@
 /* File descriptor for VSC Interface */
 VscInterfaceType* vscInterface;
 
+// global estop time and type
+int estopType = 0;
+struct timespec estopTime;
+
 void signal_handler(int s) {
   printf("Caught signal %d - Shutting down.\n", s);
   vsc_cleanup(vscInterface);
@@ -63,6 +67,8 @@ unsigned long diffTime(struct timespec start, struct timespec end, struct timesp
 }
 
 void handleJoystickMsg(VscMsgType *recvMsg) {
+/* silence joystick messages
+
   JoystickMsgType *joyMsg = (JoystickMsgType*) recvMsg->msg.data;
 
   printf("Joystick (L / R): %5i, %5i, %5i / %5i, %5i, %5i ",
@@ -71,34 +77,49 @@ void handleJoystickMsg(VscMsgType *recvMsg) {
       vsc_get_stick_value(joyMsg->rightY), vsc_get_stick_value(joyMsg->rightZ));
 
   printf("\tJoystick (L Pad / R Pad): %i, %i, %i, %i / %i, %i, %i, %i\n",
-      vsc_get_button_value(joyMsg->leftSwitch.home), vsc_get_button_value(joyMsg->leftSwitch.first),
-      vsc_get_button_value(joyMsg->leftSwitch.second), vsc_get_button_value(joyMsg->leftSwitch.third),
-      vsc_get_button_value(joyMsg->rightSwitch.home), vsc_get_button_value(joyMsg->rightSwitch.first),
-      vsc_get_button_value(joyMsg->rightSwitch.second), vsc_get_button_value(joyMsg->rightSwitch.third));
-
+         vsc_get_button_value(joyMsg->leftSwitch.home),
+         vsc_get_button_value(joyMsg->leftSwitch.first),
+         vsc_get_button_value(joyMsg->leftSwitch.second),
+         vsc_get_button_value(joyMsg->leftSwitch.third),
+         vsc_get_button_value(joyMsg->rightSwitch.home),
+         vsc_get_button_value(joyMsg->rightSwitch.first),
+         vsc_get_button_value(joyMsg->rightSwitch.second),
+         vsc_get_button_value(joyMsg->rightSwitch.third));
+*/
   /* TODO: Add application specific code here to handle joystick messages */
 }
 
-void handleHeartbeatMsg(VscMsgType *recvMsg) {
+void handleHeartbeatMsg(VscMsgType *recvMsg, struct tm *currentTime, int mTime) {
   HeartbeatMsgType *msgPtr = (HeartbeatMsgType*) recvMsg->msg.data;
 
-  printf("Heartbeat: E-Stop:  0x%x, VscMode: 0x%x, AutonomonyMode: 0x%x\n", msgPtr->EStopStatus, msgPtr->VscMode, msgPtr->AutonomonyMode);
+  char buffer[65];
+  char buffer2[80];
+  strftime(buffer, 65, "%F:%T", currentTime);
+  snprintf(buffer2, 80, "%s.%03i-", buffer, mTime/1000);
+
+  printf("%sHeartbeat: E-Stop:  0x%x, VscMode: 0x%x, AutonomonyMode: 0x%x",
+         buffer2, msgPtr->EStopStatus, msgPtr->VscMode, msgPtr->AutonomonyMode);
 
   if (msgPtr->EStopStatus > 0) {
     EstopStatusType stopStatus;
     stopStatus.bytes = msgPtr->EStopStatus;
 
-    if(stopStatus.bits.SRC) {
-      printf("WARNING!  Received EMERGENCY STOP from the SRC\n");
+    estopType = stopStatus.bytes;
+    clock_gettime(CLOCK_REALTIME, &estopTime);
+
+    if (stopStatus.bits.SRC) {
+      printf(" (WARNING! E-STOP from the SRC)\n");
     }
 
-    if(stopStatus.bits.VSC) {
-      printf("WARNING!  Received EMERGENCY STOP from the VSC\n");
+    if (stopStatus.bits.VSC) {
+      printf(" (WARNING! E-STOP from the VSC)\n");
     }
 
-    if(stopStatus.bits.USER) {
-      printf("WARNING!  Received EMERGENCY STOP from the USER\n");
+    if (stopStatus.bits.USER) {
+      printf(" (WARNING! E-STOP from the USER)\n");
     }
+  } else {
+    printf("\n");
   }
 
   /* TODO: Add application specific code here to handle heartbeat messages */
@@ -129,9 +150,17 @@ void readFromVsc() {
   /* Read all messages */
   while (vsc_read_next_msg(vscInterface, &recvMsg) > 0) {
     /* Read next Vsc Message */
+    struct tm *currentTime;
+    struct timeval rawtime;
+    int milliTime;
+
+    gettimeofday(&rawtime, NULL);
+    currentTime = localtime(&rawtime.tv_sec);
+    milliTime = rawtime.tv_usec;
+
     switch (recvMsg.msg.msgType) {
     case MSG_VSC_HEARTBEAT:
-      handleHeartbeatMsg(&recvMsg);
+      handleHeartbeatMsg(&recvMsg, currentTime, milliTime);
 
       break;
     case MSG_VSC_NMEA_STRING:
@@ -152,17 +181,21 @@ void readFromVsc() {
       break;
     }
   }
-
 }
 
 int main(int argc, char *argv[]) {
   struct timespec lastSent, timeNow, lastReceived, timeDiff;
   struct timeval timeout;
   int max_fd, vsc_fd, retval;
-    int16_t testvalue;
-    char teststring[20];
+  int16_t testvalue, loopCount;
   fd_set input;
   testvalue = -1234;
+  loopCount = 1;
+
+  struct timespec startTime;
+  // get time application begun
+  clock_gettime(CLOCK_REALTIME, &estopTime);
+  clock_gettime(CLOCK_REALTIME, &startTime);
 
   /* Verify Arguments */
   if (argc != 3) {
@@ -195,12 +228,13 @@ int main(int argc, char *argv[]) {
   vsc_send_heartbeat(vscInterface, ESTOP_STATUS_NOT_SET);
 
   /* Send Display Mode to VSC */
-  vsc_send_user_feedback(vscInterface, VSC_USER_DISPLAY_MODE, DISPLAY_MODE_CUSTOM_TEXT);
+  vsc_send_user_feedback(vscInterface, VSC_USER_DISPLAY_MODE, DISPLAY_MODE_TEXT_VALUE);
 
   /* Send User String Values Once to VSC */
-  vsc_send_user_feedback_string(vscInterface, VSC_USER_DISPLAY_ROW_1, "DISPLAY MODE TEST   ");
-  vsc_send_user_feedback_string(vscInterface, VSC_USER_DISPLAY_ROW_2, "ABCDEFGHIJKLMNOPQRST");
-  vsc_send_user_feedback_string(vscInterface, VSC_USER_DISPLAY_ROW_3, "12345678901234567890");
+  vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_1, "Total Time");
+  vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_2, "Since E-Stop");
+  vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_3, "Last E-Stop");
+  vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_4, "Test");
 
   /* Loop Forever */
   while (1) {
@@ -215,12 +249,28 @@ int main(int argc, char *argv[]) {
       /* Send Heartbeat */
       vsc_send_heartbeat(vscInterface, ESTOP_STATUS_NOT_SET);
 
-      /* Send 4th display row */
-      /* NOTE: One text string is only passed to the SRC every 250ms
-                         * no matter how fast the messages are sent to the VSC. */
-                        testvalue++;
-                        sprintf(teststring, "test: %07i", testvalue);
-                  vsc_send_user_feedback_string(vscInterface, VSC_USER_DISPLAY_ROW_4, teststring);
+      testvalue++;
+
+      loopCount++;
+      if (loopCount > VSC_USER_FEEDBACK_KEY_4) {
+        loopCount = VSC_USER_FEEDBACK_KEY_1;
+      }
+
+      /* Send User Feedback Messages based on loop counter */
+      switch (loopCount) {
+      case VSC_USER_FEEDBACK_KEY_1:
+        vsc_send_user_feedback(vscInterface, loopCount, (timeNow.tv_sec - startTime.tv_sec));
+        break;
+      case VSC_USER_FEEDBACK_KEY_2:
+        vsc_send_user_feedback(vscInterface, loopCount, (timeNow.tv_sec - estopTime.tv_sec));
+        break;
+      case VSC_USER_FEEDBACK_KEY_3:
+        vsc_send_user_feedback(vscInterface, loopCount, estopType);
+        break;
+      case VSC_USER_FEEDBACK_KEY_4:
+        vsc_send_user_feedback(vscInterface, loopCount, testvalue / 4);
+        break;
+      }
     }
 
     /* Initialize the timeout structure for 50 milliseconds*/
@@ -242,7 +292,7 @@ int main(int argc, char *argv[]) {
       clock_gettime(CLOCK_REALTIME, &timeNow);
       diffTime(lastReceived, timeNow, &timeDiff);
 
-      if(timeDiff.tv_sec > 0) {
+      if (timeDiff.tv_sec > 0) {
         printf("vsc_example: WARNING: No data received from VSC in %li.%09li seconds!\n",
             timeDiff.tv_sec, timeDiff.tv_nsec);
       }
@@ -258,7 +308,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "vsc_example: invalid fd set");
       }
     }
-
   }
 
   /* Clean up */

@@ -1,0 +1,4 @@
+*.o
+drivers/C/lib
+drivers/C/tutorials/*
+!drivers/C/tutorials/*.c
