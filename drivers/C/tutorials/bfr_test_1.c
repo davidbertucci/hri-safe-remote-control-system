@@ -1,28 +1,8 @@
 /***************************************************************************
- * Humanistic Robotics VSC Interface Library                               *
- * Version 1.1                                                             *
- * Copyright 2013, Humanistic Robotics, Inc                                *
- ***************************************************************************/
-/*
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
-
-/***************************************************************************
- * VSC_TUTORIAL_3 - Text/Value Display Mode Example
+ * BFR_TEST_1 - Driver for e-stop range testing
  *
- *   The third tutorial shows how to switch the SRC into the text/value display
- *   mode.  The example shows how to constantly update user feedback values on
- *   the SRC display.
+ *   This driver publishes e-stop status messages to the SRC screen from
+ *   the VSC and sends similar messages to the screen.
  *
  ***************************************************************************/
 
@@ -190,7 +170,7 @@ int main(int argc, char *argv[]) {
   int16_t testvalue, loopCount;
   fd_set input;
   testvalue = -1234;
-  loopCount = 1;
+  loopCount = 0;
 
   struct timespec startTime;
   // get time application begun
@@ -234,7 +214,6 @@ int main(int argc, char *argv[]) {
   vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_1, "Total Time");
   vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_2, "Since E-Stop");
   vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_3, "Last E-Stop");
-  vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_4, "Test");
 
   /* Loop Forever */
   while (1) {
@@ -251,24 +230,30 @@ int main(int argc, char *argv[]) {
 
       testvalue++;
 
-      loopCount++;
-      if (loopCount > VSC_USER_FEEDBACK_KEY_4) {
-        loopCount = VSC_USER_FEEDBACK_KEY_1;
-      }
+      loopCount = (loopcount + 1) % 7;
 
       /* Send User Feedback Messages based on loop counter */
       switch (loopCount) {
-      case VSC_USER_FEEDBACK_KEY_1:
-        vsc_send_user_feedback(vscInterface, loopCount, (timeNow.tv_sec - startTime.tv_sec));
+      case 0:
+        vsc_send_user_feedback(vscInterface, VSC_USER_FEEDBACK_KEY_1, (timeNow.tv_sec - startTime.tv_sec));
         break;
-      case VSC_USER_FEEDBACK_KEY_2:
-        vsc_send_user_feedback(vscInterface, loopCount, (timeNow.tv_sec - estopTime.tv_sec));
+      case 1:
+        vsc_send_user_feedback(vscInterface, VSC_USER_FEEDBACK_KEY_2, (timeNow.tv_sec - estopTime.tv_sec));
         break;
-      case VSC_USER_FEEDBACK_KEY_3:
-        vsc_send_user_feedback(vscInterface, loopCount, estopType);
+      case 2:
+        vsc_send_user_feedback(vscInterface, VSC_USER_FEEDBACK_KEY_3, estopType);
         break;
-      case VSC_USER_FEEDBACK_KEY_4:
-        vsc_send_user_feedback(vscInterface, loopCount, testvalue / 4);
+      case 3:
+        vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_1, "Total Time");
+        break;
+      case 4:
+        vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_2, "Since E-Stop");
+        break;
+      case 5:
+        vsc_send_user_feedback_string(vscInterface, VSC_USER_FEEDBACK_KEY_3, "Last E-Stop");
+        break;
+      case 6:
+        vsc_send_user_feedback(vscInterface, VSC_USER_DISPLAY_MODE, DISPLAY_MODE_TEXT_VALUE);
         break;
       }
     }
