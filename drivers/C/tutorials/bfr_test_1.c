@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
 
       testvalue++;
 
-      loopCount = (loopcount + 1) % 7;
+      loopCount = (loopCount + 1) % 7;
 
       /* Send User Feedback Messages based on loop counter */
       switch (loopCount) {
